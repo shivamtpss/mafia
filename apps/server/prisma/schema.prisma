@@ -1,0 +1,276 @@
+// AI Mafia — Prisma schema
+// Persistent data model. Temporary gameplay state (live rooms, phase timers,
+// secret roles) lives in Redis / in-memory on the server and is NOT stored here
+// except as finalized match records once a game ends.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String?  @unique
+  // Null for guest-upgraded accounts that have not set a password yet.
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile      PlayerProfile?
+  guestSessions GuestSession[]
+
+  @@index([createdAt])
+}
+
+// A guest identity backed by an opaque session token stored client-side.
+// May later be linked to a User when the player registers.
+model GuestSession {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  displayName String
+  avatar      String
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  profile     PlayerProfile?
+
+  @@index([userId])
+  @@index([lastSeenAt])
+}
+
+model PlayerProfile {
+  id             String   @id @default(cuid())
+  userId         String?  @unique
+  user           User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestSessionId String?  @unique
+  guestSession   GuestSession? @relation(fields: [guestSessionId], references: [id], onDelete: Cascade)
+
+  displayName    String
+  avatar         String
+  xp             Int      @default(0)
+  level          Int      @default(1)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  statistics     PlayerStatistics?
+  participants   GameParticipant[]
+  achievements   PlayerAchievement[]
+  inventory      PlayerInventory[]
+  reportsMade    ModerationReport[] @relation("reporter")
+  reportsAgainst ModerationReport[] @relation("reported")
+
+  @@index([xp])
+  @@index([level])
+}
+
+model PlayerStatistics {
+  id         String   @id @default(cuid())
+  profileId  String   @unique
+  profile    PlayerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  gamesPlayed Int     @default(0)
+  wins        Int     @default(0)
+  losses      Int     @default(0)
+  townWins    Int     @default(0)
+  mafiaWins   Int     @default(0)
+  timesMafia  Int     @default(0)
+  timesDetective Int  @default(0)
+  timesDoctor Int     @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Games
+// ---------------------------------------------------------------------------
+
+enum GameRoomStatus {
+  OPEN
+  IN_PROGRESS
+  FINISHED
+  ABANDONED
+}
+
+// A room record is created when a game actually starts (lobbies live in Redis).
+model GameRoom {
+  id        String   @id @default(cuid())
+  code      String
+  status    GameRoomStatus @default(OPEN)
+  hostName  String
+  createdAt DateTime @default(now())
+
+  games     Game[]
+
+  @@index([code])
+  @@index([status])
+}
+
+enum GameOutcome {
+  TOWN_WIN
+  MAFIA_WIN
+  ABANDONED
+}
+
+model Game {
+  id          String   @id @default(cuid())
+  roomId      String
+  room        GameRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  themeId     String?
+  playerCount Int
+  rounds      Int      @default(0)
+  outcome     GameOutcome?
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  participants GameParticipant[]
+  result       MatchResult?
+
+  @@index([roomId])
+  @@index([startedAt])
+}
+
+// One row per seat in a finished/finalized game. Role is recorded here only
+// after the game ends (never exposed mid-game via the DB).
+model GameParticipant {
+  id         String   @id @default(cuid())
+  gameId     String
+  game       Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  profileId  String?
+  profile    PlayerProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  displayName String
+  avatar      String
+  isAi        Boolean  @default(false)
+  role        String   // Role enum value, recorded at game end
+  team        String   // Team enum value
+  survived    Boolean  @default(false)
+  won         Boolean  @default(false)
+  xpAwarded   Int      @default(0)
+
+  @@index([gameId])
+  @@index([profileId])
+}
+
+model MatchResult {
+  id           String   @id @default(cuid())
+  gameId       String   @unique
+  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  winningTeam  String
+  summary      String
+  // Compact JSON timeline of public events for replay.
+  timeline     Json
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Progression & cosmetics
+// ---------------------------------------------------------------------------
+
+model Achievement {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String
+  icon        String?
+  players     PlayerAchievement[]
+}
+
+model PlayerAchievement {
+  id            String   @id @default(cuid())
+  profileId     String
+  profile       PlayerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime @default(now())
+
+  @@unique([profileId, achievementId])
+  @@index([profileId])
+}
+
+enum CosmeticType {
+  AVATAR
+  AVATAR_ANIMATION
+  ROOM_THEME
+  BADGE
+}
+
+model CosmeticItem {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  type        CosmeticType
+  // Entitlement gating: free, earned via XP, or premium.
+  premium     Boolean  @default(false)
+  priceCents  Int?     // null = not directly purchasable
+  metadata    Json?
+  inventory   PlayerInventory[]
+}
+
+model PlayerInventory {
+  id         String   @id @default(cuid())
+  profileId  String
+  profile    PlayerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       CosmeticItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  equipped   Boolean  @default(false)
+  acquiredAt DateTime @default(now())
+
+  @@unique([profileId, itemId])
+  @@index([profileId])
+}
+
+// ---------------------------------------------------------------------------
+// Narrative scenarios (AI-generated, validated, cached)
+// ---------------------------------------------------------------------------
+
+model Scenario {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  theme       String
+  title       String
+  // Validated narrative payload (names, bios, prompts). No secret game state.
+  content     Json
+  premium     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([theme])
+}
+
+// ---------------------------------------------------------------------------
+// Moderation
+// ---------------------------------------------------------------------------
+
+enum ModerationStatus {
+  OPEN
+  REVIEWED
+  ACTIONED
+  DISMISSED
+}
+
+model ModerationReport {
+  id          String   @id @default(cuid())
+  reporterId  String?
+  reporter    PlayerProfile? @relation("reporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  reportedId  String?
+  reported    PlayerProfile? @relation("reported", fields: [reportedId], references: [id], onDelete: SetNull)
+  gameId      String?
+  reason      String
+  details     String?
+  status      ModerationStatus @default(OPEN)
+  createdAt   DateTime @default(now())
+
+  @@index([status])
+  @@index([reportedId])
+}
