@@ -83,6 +83,12 @@ export interface JoinRoomPayload {
 
 export interface RejoinRoomPayload {
   code: string;
+  /**
+   * The session token to reclaim a seat with. The client passes it explicitly
+   * (rather than relying solely on handshake auth) so rejoin works even when the
+   * socket has not reconnected since the token was issued.
+   */
+  sessionId?: string;
 }
 
 export interface ReadyPayload {
@@ -124,6 +130,11 @@ export interface UpdateSettingsPayload {
 export interface JoinedRoomData {
   /** The caller's own player id within this room. */
   selfId: string;
+  /**
+   * The session token the client must persist (localStorage) to reclaim this
+   * seat after a reload or reconnect. Opaque bearer token.
+   */
+  sessionId: string;
   room: PublicRoomState;
 }
 

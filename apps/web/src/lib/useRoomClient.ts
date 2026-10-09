@@ -146,8 +146,10 @@ export function useRoomClient(): RoomClient {
   const rejoin = useCallback(
     async (code: string): Promise<ActionResult<JoinedRoomData>> => {
       const sock = ensureSocket();
+      const id = loadIdentity();
       const res = await emitWithAck<JoinedRoomData>(sock, 'room:rejoin', {
         code,
+        sessionId: id?.sessionId || undefined,
       });
       if (!res.ok) return { ok: false, message: res.error.message };
       applyJoin(res.data);
@@ -159,6 +161,13 @@ export function useRoomClient(): RoomClient {
   function applyJoin(data: JoinedRoomData) {
     setSelfId(data.selfId);
     setRoom(data.room);
+    // Persist the server-issued session token so a reload/reconnect can reclaim
+    // this exact seat via room:rejoin. Also refresh the live socket's auth.
+    patchIdentity({ sessionId: data.sessionId });
+    const sock = socketRef.current;
+    if (sock) {
+      sock.auth = authFromIdentity() as Record<string, unknown>;
+    }
   }
 
   const setReady = useCallback(

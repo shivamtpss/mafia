@@ -95,6 +95,21 @@ node apps/server/test/smoke-lobby.js
 
 This connects multiple Socket.IO clients and asserts create/join, duplicate-name rejection, not-enough-players and non-host start rejection, the authoritative start transition, and chat broadcast.
 
+### Real-browser end-to-end tests (Playwright)
+
+The full acceptance path is covered by Playwright, which drives **real browser
+contexts against the rendered UI** (two players in separate contexts): create →
+join → live player sync → cross-tab chat → ready-up → authoritative host start →
+all tabs reach Role Reveal, plus reconnect-on-refresh reclaiming the same seat.
+
+```bash
+npm run test:e2e
+```
+
+This builds shared + server + web, boots the NestJS server and the production
+Next.js build, and runs the browser suite (`apps/e2e`). It requires a Playwright
+Chromium browser to be available locally.
+
 ---
 
 ## Verification commands

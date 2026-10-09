@@ -16,8 +16,14 @@ export function loadIdentity(): SessionIdentity | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<SessionIdentity>;
-    if (!parsed.sessionId || !parsed.displayName || !parsed.avatar) return null;
-    return parsed as SessionIdentity;
+    // A stored identity is valid once it has a name + avatar. The sessionId is
+    // issued by the server on first join, so it may legitimately be empty here.
+    if (!parsed.displayName || !parsed.avatar) return null;
+    return {
+      sessionId: parsed.sessionId ?? '',
+      displayName: parsed.displayName,
+      avatar: parsed.avatar,
+    };
   } catch {
     return null;
   }

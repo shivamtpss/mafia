@@ -130,6 +130,7 @@ export class RoomsGateway
       this.bindSocket(client, outcome.room, outcome.player.id, outcome.sessionId);
       return ok<JoinedRoomData>({
         selfId: outcome.player.id,
+        sessionId: outcome.sessionId,
         room: toPublicRoomState(outcome.room),
       });
     });
@@ -160,6 +161,7 @@ export class RoomsGateway
       this.broadcastRoom(outcome.room);
       return ok<JoinedRoomData>({
         selfId: outcome.player.id,
+        sessionId: outcome.sessionId,
         room: toPublicRoomState(outcome.room),
       });
     });
@@ -172,14 +174,17 @@ export class RoomsGateway
   ): AckResult<JoinedRoomData> {
     return this.guard(() => {
       const auth = (client.handshake.auth ?? {}) as SocketHandshakeAuth;
-      if (!auth.sessionId) {
+      // Prefer the explicit payload token; fall back to handshake auth.
+      const sessionId = payload?.sessionId || auth.sessionId;
+      if (!sessionId) {
         return fail(ErrorCode.NotAuthorized, 'No session to rejoin with');
       }
-      const outcome = this.rooms.rejoinRoom(payload?.code, auth.sessionId);
+      const outcome = this.rooms.rejoinRoom(payload?.code, sessionId);
       this.bindSocket(client, outcome.room, outcome.player.id, outcome.sessionId);
       this.broadcastRoom(outcome.room);
       return ok<JoinedRoomData>({
         selfId: outcome.player.id,
+        sessionId: outcome.sessionId,
         room: toPublicRoomState(outcome.room),
       });
     });

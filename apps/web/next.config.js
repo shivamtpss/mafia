@@ -4,7 +4,10 @@ const nextConfig = {
   // Produce a self-contained server bundle for the Docker runtime stage.
   output: 'standalone',
   // The monorepo root is two levels up; tell Next where to trace files from.
-  outputFileTracingRoot: require('path').join(__dirname, '../../'),
+  // (Next 14 exposes this under `experimental`.)
+  experimental: {
+    outputFileTracingRoot: require('path').join(__dirname, '../../'),
+  },
   // Compile the shared workspace package from source.
   transpilePackages: ['@ai-mafia/shared'],
 };
