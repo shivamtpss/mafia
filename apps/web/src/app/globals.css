@@ -1,6 +1,56 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/*
+ * Tailwind 4 CSS-first configuration. The cinematic palette, fonts, shadows and
+ * animations that previously lived in tailwind.config.ts are defined here as
+ * theme tokens, which Tailwind turns into utilities (bg-midnight-900, etc).
+ */
+@theme {
+  --color-midnight-950: #05060d;
+  --color-midnight-900: #0a0b17;
+  --color-midnight-800: #11131f;
+  --color-midnight-700: #181b2b;
+
+  --color-charcoal-900: #13141c;
+  --color-charcoal-800: #1b1d28;
+  --color-charcoal-700: #242736;
+  --color-charcoal-600: #2f3245;
+
+  --color-crimson: #b2243a;
+  --color-crimson-muted: #8a2030;
+  --color-crimson-glow: #e23b55;
+
+  --color-violet-electric: #7c5cff;
+  --color-violet-glow: #9b7bff;
+
+  --color-cool-blue: #38bdf8;
+
+  --shadow-glow: 0 0 40px -10px rgba(124, 92, 255, 0.5);
+  --shadow-glow-crimson: 0 0 40px -10px rgba(226, 59, 85, 0.5);
+
+  --animate-pulse-slow: pulse-slow 6s ease-in-out infinite;
+  --animate-float: float 5s ease-in-out infinite;
+}
+
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
 
 :root {
   color-scheme: dark;
@@ -14,7 +64,7 @@ body {
 body {
   background-color: #05060d;
   color: #e6e7ee;
-  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -28,6 +78,11 @@ body {
     radial-gradient(900px 500px at 90% 10%, rgba(178, 36, 58, 0.1), transparent 55%),
     radial-gradient(800px 800px at 50% 120%, rgba(56, 189, 248, 0.08), transparent 60%),
     #05060d;
+}
+
+/* The display font is applied via a utility class so we avoid a network fetch. */
+.font-display {
+  font-family: 'Cinzel', ui-serif, Georgia, serif;
 }
 
 @media (prefers-reduced-motion: reduce) {
