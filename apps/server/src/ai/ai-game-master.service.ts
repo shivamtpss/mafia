@@ -54,6 +54,11 @@ export class AiGameMasterService implements OnModuleInit {
    * not pay the cold-load penalty. Failures are ignored; fallbacks cover them.
    */
   onModuleInit(): void {
+    this.logger.log(
+      `AI config: narrationTimeout=${this.narrationTimeoutMs}ms ` +
+        `scenarioTimeout=${this.scenarioTimeoutMs}ms ` +
+        `keepAlive=${this.keepAlive} warmOnBoot=${this.warmOnBoot}`,
+    );
     if (!this.warmOnBoot) return;
     void this.ollama.warm(this.keepAlive).catch(() => undefined);
   }
