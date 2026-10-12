@@ -14,6 +14,7 @@ import { GameEngine } from './game.engine';
 import { GameEmitter } from './game.emitter';
 import { GameState } from './game.state';
 import { generateMessageId } from '../common/ids';
+import { AiGameMasterService } from '../ai/ai-game-master.service';
 
 /**
  * Orchestrates a live match: phase scheduling with server timers, action intake,
@@ -26,7 +27,10 @@ export class GameService {
   private readonly logger = new Logger(GameService.name);
   private emitter!: GameEmitter;
 
-  constructor(private readonly store: RoomStore) {}
+  constructor(
+    private readonly store: RoomStore,
+    private readonly ai: AiGameMasterService,
+  ) {}
 
   /** Wire the transport. Called once by the gateway after construction. */
   registerEmitter(emitter: GameEmitter): void {
@@ -70,6 +74,18 @@ export class GameService {
     GameEngine.addTimeline(game, GamePhase.RoleReveal, 'Roles have been assigned.');
     this.broadcast(room);
     this.enterPhase(room, GamePhase.RoleReveal);
+
+    // Non-blocking: fetch (or reuse) a themed scenario and post its intro as a
+    // narrator line. If Ollama is slow/unavailable this still resolves to static
+    // theme flavor; it never blocks the authoritative loop above.
+    void this.ai
+      .getScenario(room.settings.themeId)
+      .then((scenario) => {
+        const current = this.store.get(room.code);
+        if (!current || current.game !== game) return; // game ended/reset
+        this.systemLine(room, `${scenario.title} — ${scenario.intro}`);
+      })
+      .catch(() => undefined);
   }
 
   /**
@@ -136,12 +152,45 @@ export class GameService {
     });
     this.broadcast(room);
 
+    // Non-blocking AI narration enrichment: the immediate `announcement` above
+    // is static and always present; this posts a themed narrator line shortly
+    // after, if the model responds within its bounded timeout.
+    this.enrichNarration(room, phase);
+
     if (seconds > 0) {
       game.phaseTimer = setTimeout(
         () => this.onPhaseTimeout(room.code, phase, room.round),
         seconds * 1000,
       );
     }
+  }
+
+  /**
+   * Fire-and-forget themed narration for a phase. Guards against stale games and
+   * never throws into the game loop.
+   */
+  private enrichNarration(room: RoomEntity, phase: GamePhase): void {
+    const beat = AiGameMasterService.beatForPhase(phase);
+    if (!beat) return;
+    const game = room.game;
+    if (!game) return;
+    const round = room.round;
+    void this.ai
+      .narrate(room.settings.themeId, beat, { seed: round })
+      .then((line) => {
+        const current = this.store.get(room.code);
+        // Only post if we are still in the same phase/round of the same game.
+        if (
+          !current ||
+          current.game !== game ||
+          current.phase !== phase ||
+          current.round !== round
+        ) {
+          return;
+        }
+        this.systemLine(room, line);
+      })
+      .catch(() => undefined);
   }
 
   private onPhaseTimeout(code: string, phase: GamePhase, round: number): void {

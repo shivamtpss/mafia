@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AnimatePresence } from 'framer-motion';
-import { GamePhase } from '@ai-mafia/shared';
+import { GamePhase, THEMES } from '@ai-mafia/shared';
 import { useRoomClient } from '@/lib/useRoomClient';
 import { loadIdentity } from '@/lib/identity';
 import { PlayerCard } from '@/components/PlayerCard';
@@ -189,6 +189,41 @@ export default function RoomPage() {
             </div>
 
             <div className="mt-6 space-y-3">
+              {/* Theme picker (host selects; everyone sees the choice) */}
+              <div>
+                <div className="mb-1.5 text-xs uppercase tracking-wider text-slate-500">
+                  Story theme
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {THEMES.map((t) => {
+                    const active =
+                      (room?.settings.themeId ?? THEMES[0].id) === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        disabled={!isHost}
+                        onClick={() => client.updateSettings({ themeId: t.id })}
+                        className={`rounded-xl border p-2.5 text-left transition ${
+                          active
+                            ? 'border-violet-electric bg-violet-electric/15'
+                            : 'border-white/10 bg-charcoal-800/50 hover:border-violet-electric/40'
+                        } ${!isHost ? 'cursor-default opacity-80' : ''}`}
+                      >
+                        <div className="text-sm font-medium text-slate-100">
+                          {t.name}
+                        </div>
+                        <div className="text-[11px] text-slate-500">{t.blurb}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {!isHost && (
+                  <p className="mt-1 text-[11px] text-slate-600">
+                    Only the host can change the theme.
+                  </p>
+                )}
+              </div>
+
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button
                   variant={self?.isReady ? 'secondary' : 'primary'}

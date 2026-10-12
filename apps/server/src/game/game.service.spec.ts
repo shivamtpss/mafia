@@ -1,5 +1,7 @@
 import { GameService } from './game.service';
 import { GameEmitter } from './game.emitter';
+import { AiGameMasterService } from '../ai/ai-game-master.service';
+import { OllamaClient } from '../ai/ollama.client';
 import { RoomStore } from '../rooms/room.store';
 import { RoomsService } from '../rooms/rooms.service';
 import { RoomEntity } from '../rooms/room.entity';
@@ -65,7 +67,14 @@ describe('GameService — orchestration', () => {
     jest.useFakeTimers();
     store = new RoomStore();
     rooms = new RoomsService(store);
-    service = new GameService(store);
+    // Offline AI: the Ollama client always fails fast, so narration/scenario
+    // resolve deterministically to static fallbacks (no network in unit tests).
+    const ollama = new OllamaClient();
+    jest
+      .spyOn(ollama, 'generate')
+      .mockResolvedValue({ ok: false, text: '', error: 'offline (test)' });
+    const ai = new AiGameMasterService(ollama);
+    service = new GameService(store, ai);
     emitter = new FakeEmitter();
     service.registerEmitter(emitter);
   });

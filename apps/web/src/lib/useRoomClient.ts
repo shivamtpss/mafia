@@ -44,6 +44,7 @@ export interface RoomClient {
   rejoin: (code: string) => Promise<ActionResult<JoinedRoomData>>;
   setReady: (ready: boolean) => Promise<ActionResult<PublicRoomState>>;
   updateProfile: (patch: { displayName?: string; avatar?: string }) => Promise<ActionResult<PublicRoomState>>;
+  updateSettings: (patch: { themeId?: string }) => Promise<ActionResult<PublicRoomState>>;
   startGame: () => Promise<ActionResult<PublicRoomState>>;
   rematch: () => Promise<ActionResult<PublicRoomState>>;
   submitNightAction: (targetId: string | null) => Promise<ActionResult<{ accepted: true }>>;
@@ -250,6 +251,19 @@ export function useRoomClient(): RoomClient {
     return { ok: true, data: res.data };
   }, [ensureSocket]);
 
+  const updateSettings = useCallback(
+    async (patch: { themeId?: string }): Promise<ActionResult<PublicRoomState>> => {
+      const sock = ensureSocket();
+      const res = await emitWithAck<PublicRoomState>(sock, 'room:settings', {
+        settings: patch,
+      });
+      if (!res.ok) return { ok: false, message: res.error.message };
+      setRoom(res.data);
+      return { ok: true, data: res.data };
+    },
+    [ensureSocket],
+  );
+
   const rematch = useCallback(async (): Promise<
     ActionResult<PublicRoomState>
   > => {
@@ -331,6 +345,7 @@ export function useRoomClient(): RoomClient {
     rejoin,
     setReady,
     updateProfile,
+    updateSettings,
     startGame,
     rematch,
     submitNightAction,
