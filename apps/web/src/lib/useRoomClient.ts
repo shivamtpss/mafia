@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ChatMessage,
+  EliminationPayload,
+  GameFinishedPayload,
+  InvestigationResultPayload,
   JoinedRoomData,
   PhaseChangedPayload,
+  PrivateRoleInfo,
   PublicRoomState,
   SocketHandshakeAuth,
+  VoteTally,
 } from '@ai-mafia/shared';
 import { emitWithAck, getSocket, TypedSocket } from './socket';
 import { loadIdentity, patchIdentity } from './identity';
@@ -24,12 +29,25 @@ export interface RoomClient {
   selfId: string | null;
   messages: ChatMessage[];
   lastPhaseEvent: PhaseChangedPayload | null;
+  /** Private role info for this player (received on game start). */
+  role: PrivateRoleInfo | null;
+  /** Private detective investigation results, newest last. */
+  investigations: InvestigationResultPayload[];
+  /** Latest public vote tally during the voting phase. */
+  tally: VoteTally | null;
+  /** Latest elimination announcement. */
+  lastElimination: EliminationPayload | null;
+  /** Final results once the game ends. */
+  finished: GameFinishedPayload | null;
   createRoom: (name: string, avatar: string) => Promise<ActionResult<JoinedRoomData>>;
   joinRoom: (code: string, name: string, avatar: string) => Promise<ActionResult<JoinedRoomData>>;
   rejoin: (code: string) => Promise<ActionResult<JoinedRoomData>>;
   setReady: (ready: boolean) => Promise<ActionResult<PublicRoomState>>;
   updateProfile: (patch: { displayName?: string; avatar?: string }) => Promise<ActionResult<PublicRoomState>>;
   startGame: () => Promise<ActionResult<PublicRoomState>>;
+  rematch: () => Promise<ActionResult<PublicRoomState>>;
+  submitNightAction: (targetId: string | null) => Promise<ActionResult<{ accepted: true }>>;
+  castVote: (targetId: string | null) => Promise<ActionResult<{ accepted: true }>>;
   sendChat: (text: string) => Promise<ActionResult<{ accepted: true }>>;
   leaveRoom: () => Promise<void>;
 }
@@ -58,6 +76,14 @@ export function useRoomClient(): RoomClient {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [lastPhaseEvent, setLastPhaseEvent] =
     useState<PhaseChangedPayload | null>(null);
+  const [role, setRole] = useState<PrivateRoleInfo | null>(null);
+  const [investigations, setInvestigations] = useState<
+    InvestigationResultPayload[]
+  >([]);
+  const [tally, setTally] = useState<VoteTally | null>(null);
+  const [lastElimination, setLastElimination] =
+    useState<EliminationPayload | null>(null);
+  const [finished, setFinished] = useState<GameFinishedPayload | null>(null);
   const socketRef = useRef<TypedSocket | null>(null);
 
   // Establish the connection + server->client listeners once.
@@ -80,6 +106,12 @@ export function useRoomClient(): RoomClient {
           : prev,
       );
     };
+    const onRole = (info: PrivateRoleInfo) => setRole(info);
+    const onInvestigation = (p: InvestigationResultPayload) =>
+      setInvestigations((prev) => [...prev, p]);
+    const onVote = (t: VoteTally) => setTally(t);
+    const onElim = (p: EliminationPayload) => setLastElimination(p);
+    const onFinished = (p: GameFinishedPayload) => setFinished(p);
 
     sock.on('connect', onConnect);
     sock.on('disconnect', onDisconnect);
@@ -88,6 +120,11 @@ export function useRoomClient(): RoomClient {
     sock.on('room:updated', onRoomUpdated);
     sock.on('chat:message', onChat);
     sock.on('phase:changed', onPhase);
+    sock.on('role:assigned', onRole);
+    sock.on('investigation:result', onInvestigation);
+    sock.on('vote:updated', onVote);
+    sock.on('player:eliminated', onElim);
+    sock.on('game:finished', onFinished);
 
     return () => {
       sock.off('connect', onConnect);
@@ -97,6 +134,11 @@ export function useRoomClient(): RoomClient {
       sock.off('room:updated', onRoomUpdated);
       sock.off('chat:message', onChat);
       sock.off('phase:changed', onPhase);
+      sock.off('role:assigned', onRole);
+      sock.off('investigation:result', onInvestigation);
+      sock.off('vote:updated', onVote);
+      sock.off('player:eliminated', onElim);
+      sock.off('game:finished', onFinished);
     };
   }, []);
 
@@ -208,6 +250,46 @@ export function useRoomClient(): RoomClient {
     return { ok: true, data: res.data };
   }, [ensureSocket]);
 
+  const rematch = useCallback(async (): Promise<
+    ActionResult<PublicRoomState>
+  > => {
+    const sock = ensureSocket();
+    const res = await emitWithAck<PublicRoomState>(sock, 'game:rematch');
+    if (!res.ok) return { ok: false, message: res.error.message };
+    // Clear per-game state so the lobby is clean for the next match.
+    setRole(null);
+    setInvestigations([]);
+    setTally(null);
+    setLastElimination(null);
+    setFinished(null);
+    setRoom(res.data);
+    return { ok: true, data: res.data };
+  }, [ensureSocket]);
+
+  const submitNightAction = useCallback(
+    async (targetId: string | null): Promise<ActionResult<{ accepted: true }>> => {
+      const sock = ensureSocket();
+      const res = await emitWithAck<{ accepted: true }>(sock, 'night:action', {
+        targetId,
+      });
+      if (!res.ok) return { ok: false, message: res.error.message };
+      return { ok: true, data: res.data };
+    },
+    [ensureSocket],
+  );
+
+  const castVote = useCallback(
+    async (targetId: string | null): Promise<ActionResult<{ accepted: true }>> => {
+      const sock = ensureSocket();
+      const res = await emitWithAck<{ accepted: true }>(sock, 'vote:cast', {
+        targetId,
+      });
+      if (!res.ok) return { ok: false, message: res.error.message };
+      return { ok: true, data: res.data };
+    },
+    [ensureSocket],
+  );
+
   const sendChat = useCallback(
     async (text: string): Promise<ActionResult<{ accepted: true }>> => {
       const sock = ensureSocket();
@@ -226,6 +308,11 @@ export function useRoomClient(): RoomClient {
     setRoom(null);
     setSelfId(null);
     setMessages([]);
+    setRole(null);
+    setInvestigations([]);
+    setTally(null);
+    setLastElimination(null);
+    setFinished(null);
   }, []);
 
   return {
@@ -234,12 +321,20 @@ export function useRoomClient(): RoomClient {
     selfId,
     messages,
     lastPhaseEvent,
+    role,
+    investigations,
+    tally,
+    lastElimination,
+    finished,
     createRoom,
     joinRoom,
     rejoin,
     setReady,
     updateProfile,
     startGame,
+    rematch,
+    submitNightAction,
+    castVote,
     sendChat,
     leaveRoom,
   };

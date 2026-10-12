@@ -9,6 +9,7 @@ import { loadIdentity } from '@/lib/identity';
 import { PlayerCard } from '@/components/PlayerCard';
 import { ChatPanel } from '@/components/ChatPanel';
 import { ConnectionBadge } from '@/components/ConnectionBadge';
+import { GameScreen } from '@/components/GameScreen';
 import { Button } from '@/components/Button';
 
 export default function RoomPage() {
@@ -160,31 +161,33 @@ export default function RoomPage() {
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-        {/* Players + controls */}
-        <section className="rounded-3xl border border-white/10 bg-charcoal-900/50 p-5 backdrop-blur-md">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-200">
-              Players{' '}
-              <span className="text-slate-500">
-                {room?.players.length}/{room?.settings.maxPlayers}
+      {inGame ? (
+        <GameScreen client={client} />
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+          {/* Players + controls */}
+          <section className="rounded-3xl border border-white/10 bg-charcoal-900/50 p-5 backdrop-blur-md">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-semibold text-slate-200">
+                Players{' '}
+                <span className="text-slate-500">
+                  {room?.players.length}/{room?.settings.maxPlayers}
+                </span>
+              </h2>
+              <span className="text-xs text-slate-500">
+                {readyCount}/{room?.players.length} ready · min{' '}
+                {room?.settings.minPlayers}
               </span>
-            </h2>
-            <span className="text-xs text-slate-500">
-              {readyCount}/{room?.players.length} ready · min{' '}
-              {room?.settings.minPlayers}
-            </span>
-          </div>
+            </div>
 
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <AnimatePresence mode="popLayout">
-              {room?.players.map((p) => (
-                <PlayerCard key={p.id} player={p} isSelf={p.id === client.selfId} />
-              ))}
-            </AnimatePresence>
-          </div>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <AnimatePresence mode="popLayout">
+                {room?.players.map((p) => (
+                  <PlayerCard key={p.id} player={p} isSelf={p.id === client.selfId} />
+                ))}
+              </AnimatePresence>
+            </div>
 
-          {!inGame ? (
             <div className="mt-6 space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button
@@ -218,46 +221,28 @@ export default function RoomPage() {
                 </p>
               )}
             </div>
-          ) : (
-            <div className="mt-6 rounded-2xl border border-violet-electric/30 bg-violet-electric/10 p-5 text-center">
-              <div className="text-sm uppercase tracking-widest text-violet-glow">
-                Phase
-              </div>
-              <div className="mt-1 font-display text-2xl text-slate-100">
-                {room?.phase.replace('_', ' ')}
-              </div>
-              {client.lastPhaseEvent?.announcement && (
-                <p className="mt-2 text-sm italic text-slate-400">
-                  {client.lastPhaseEvent.announcement}
-                </p>
-              )}
-              <p className="mt-3 text-xs text-slate-500">
-                The full night/day game loop arrives in Phase 2. The lobby,
-                realtime sync, and authoritative start flow are live now.
+
+            {actionError && (
+              <p className="mt-4 rounded-xl border border-crimson/40 bg-crimson/10 px-4 py-2.5 text-center text-sm text-crimson-glow">
+                {actionError}
               </p>
+            )}
+          </section>
+
+          {/* Chat */}
+          <section className="flex h-[32rem] flex-col rounded-3xl border border-white/10 bg-charcoal-900/50 p-5 backdrop-blur-md lg:h-auto">
+            <h2 className="mb-3 font-semibold text-slate-200">Lobby chat</h2>
+            <div className="min-h-0 flex-1">
+              <ChatPanel
+                messages={client.messages}
+                selfId={client.selfId}
+                onSend={(t) => client.sendChat(t)}
+                disabled={client.conn !== 'connected'}
+              />
             </div>
-          )}
-
-          {actionError && (
-            <p className="mt-4 rounded-xl border border-crimson/40 bg-crimson/10 px-4 py-2.5 text-center text-sm text-crimson-glow">
-              {actionError}
-            </p>
-          )}
-        </section>
-
-        {/* Chat */}
-        <section className="flex h-[32rem] flex-col rounded-3xl border border-white/10 bg-charcoal-900/50 p-5 backdrop-blur-md lg:h-auto">
-          <h2 className="mb-3 font-semibold text-slate-200">Lobby chat</h2>
-          <div className="min-h-0 flex-1">
-            <ChatPanel
-              messages={client.messages}
-              selfId={client.selfId}
-              onSend={(t) => client.sendChat(t)}
-              disabled={client.conn !== 'connected'}
-            />
-          </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

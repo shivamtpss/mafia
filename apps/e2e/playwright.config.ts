@@ -33,6 +33,12 @@ export default defineConfig({
         SERVER_PORT: String(SERVER_PORT),
         CORS_ORIGIN: `http://localhost:${WEB_PORT}`,
         NODE_ENV: 'production',
+        // Short phases so the full-game e2e runs quickly and deterministically.
+        AI_MAFIA_PHASE_ROLE_REVEAL: '2',
+        AI_MAFIA_PHASE_NIGHT: '30',
+        AI_MAFIA_PHASE_DAY: '2',
+        AI_MAFIA_PHASE_VOTING: '30',
+        AI_MAFIA_PHASE_ELIMINATION: '2',
       },
       url: `http://localhost:${SERVER_PORT}/health`,
       reuseExistingServer: false,

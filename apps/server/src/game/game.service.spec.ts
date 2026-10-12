@@ -87,8 +87,8 @@ describe('GameService — orchestration', () => {
     // The public room snapshots never contain role/team fields.
     for (const snap of emitter.roomUpdates) {
       for (const pp of snap.players) {
-        expect((pp as Record<string, unknown>).role).toBeUndefined();
-        expect((pp as Record<string, unknown>).team).toBeUndefined();
+        expect((pp as unknown as Record<string, unknown>).role).toBeUndefined();
+        expect((pp as unknown as Record<string, unknown>).team).toBeUndefined();
       }
     }
   });

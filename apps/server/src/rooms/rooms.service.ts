@@ -56,6 +56,32 @@ export class RoomsService {
 
   constructor(private readonly store: RoomStore) {}
 
+  /**
+   * Default room settings, allowing phase durations to be shortened via env for
+   * tests / fast demos (e.g. AI_MAFIA_PHASE_DAY=2). Values are clamped by
+   * updateSettings bounds when edited by a host; these raw overrides are for
+   * controlled environments only.
+   */
+  private defaultSettings(): RoomSettings {
+    const base = {
+      ...DEFAULT_ROOM_SETTINGS,
+      phaseDurations: { ...DEFAULT_ROOM_SETTINGS.phaseDurations },
+    };
+    const env = (key: string, cur: number): number => {
+      const raw = process.env[key];
+      if (!raw) return cur;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : cur;
+    };
+    const d = base.phaseDurations;
+    d.roleReveal = env('AI_MAFIA_PHASE_ROLE_REVEAL', d.roleReveal);
+    d.night = env('AI_MAFIA_PHASE_NIGHT', d.night);
+    d.day = env('AI_MAFIA_PHASE_DAY', d.day);
+    d.voting = env('AI_MAFIA_PHASE_VOTING', d.voting);
+    d.elimination = env('AI_MAFIA_PHASE_ELIMINATION', d.elimination);
+    return base;
+  }
+
   // -------------------------------------------------------------------------
   // Creation & joining
   // -------------------------------------------------------------------------
@@ -72,7 +98,7 @@ export class RoomsService {
       code,
       phase: GamePhase.Lobby,
       hostId: '',
-      settings: { ...DEFAULT_ROOM_SETTINGS },
+      settings: this.defaultSettings(),
       players: new Map(),
       round: 0,
       phaseEndsAt: null,
