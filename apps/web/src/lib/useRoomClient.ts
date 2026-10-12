@@ -113,6 +113,16 @@ export function useRoomClient(): RoomClient {
     const onVote = (t: VoteTally) => setTally(t);
     const onElim = (p: EliminationPayload) => setLastElimination(p);
     const onFinished = (p: GameFinishedPayload) => setFinished(p);
+    // A fresh game started: clear chat + prior-game state so narration/votes
+    // from a previous match (possibly a different theme) don't linger.
+    const onGameStarted = (r: PublicRoomState) => {
+      setRoom(r);
+      setMessages([]);
+      setInvestigations([]);
+      setTally(null);
+      setLastElimination(null);
+      setFinished(null);
+    };
 
     sock.on('connect', onConnect);
     sock.on('disconnect', onDisconnect);
@@ -121,6 +131,7 @@ export function useRoomClient(): RoomClient {
     sock.on('room:updated', onRoomUpdated);
     sock.on('chat:message', onChat);
     sock.on('phase:changed', onPhase);
+    sock.on('game:started', onGameStarted);
     sock.on('role:assigned', onRole);
     sock.on('investigation:result', onInvestigation);
     sock.on('vote:updated', onVote);
@@ -135,6 +146,7 @@ export function useRoomClient(): RoomClient {
       sock.off('room:updated', onRoomUpdated);
       sock.off('chat:message', onChat);
       sock.off('phase:changed', onPhase);
+      sock.off('game:started', onGameStarted);
       sock.off('role:assigned', onRole);
       sock.off('investigation:result', onInvestigation);
       sock.off('vote:updated', onVote);

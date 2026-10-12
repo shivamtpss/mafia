@@ -7,6 +7,7 @@ import {
   PlayerStatus,
   Role,
   Team,
+  themeRole,
   type PublicPlayer,
 } from '@ai-mafia/shared';
 import type { RoomClient } from '@/lib/useRoomClient';
@@ -89,6 +90,8 @@ export function GameScreen({ client }: Props) {
   }
 
   const roleMeta = role ? ROLE_META[role.role] : null;
+  // Theme overrides the role's display name + emoji (mechanics unchanged).
+  const themed = role ? themeRole(room.settings.themeId, role.role) : null;
   const allies =
     role?.role === Role.Mafia && role.allies
       ? room.players.filter((p) => role.allies!.includes(p.id))
@@ -135,11 +138,11 @@ export function GameScreen({ client }: Props) {
           <div
             className={`flex items-center gap-4 rounded-2xl border p-4 ${TONE_CLASSES[roleMeta.tone]}`}
           >
-            <div className="text-4xl">{roleMeta.emoji}</div>
+            <div className="text-4xl">{themed?.emoji ?? roleMeta.emoji}</div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-semibold" data-testid="role-label">
-                  {roleMeta.label}
+                  {themed?.label ?? roleMeta.label}
                 </span>
                 <span className="text-xs opacity-70">
                   · {role!.team === Team.Mafia ? 'Mafia' : 'Town'}
@@ -351,7 +354,7 @@ function Results({ client }: { client: RoomClient }) {
           <p className="mt-3 text-sm">
             You were the{' '}
             <span className="font-semibold text-slate-200">
-              {ROLE_META[selfRole.role as Role].label}
+              {themeRole(room.settings.themeId, selfRole.role as Role).label}
             </span>{' '}
             ·{' '}
             <span className={won ? 'text-emerald-300' : 'text-crimson-glow'}>
@@ -367,7 +370,7 @@ function Results({ client }: { client: RoomClient }) {
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {finished.roles.map((r) => {
             const p = room.players.find((pp) => pp.id === r.playerId);
-            const meta = ROLE_META[r.role as Role];
+            const meta = themeRole(room.settings.themeId, r.role as Role);
             return (
               <div
                 key={r.playerId}

@@ -5,6 +5,14 @@
  * ALWAYS kept separate from trusted game commands.
  */
 
+import { Role } from './types';
+
+/** Per-theme cosmetic display for a role (mechanics are unchanged). */
+export interface ThemeRoleDisplay {
+  label: string;
+  emoji: string;
+}
+
 export interface ThemeDef {
   id: string;
   name: string;
@@ -14,6 +22,11 @@ export interface ThemeDef {
   villainName: string;
   /** What the "Town" faction is called in this theme (cosmetic only). */
   townName: string;
+  /**
+   * Cosmetic role names + emoji for this theme. The underlying Role enum and all
+   * mechanics are identical across themes; only these labels/emoji change.
+   */
+  roles: Record<Role, ThemeRoleDisplay>;
   /** Static fallback narration used when AI is unavailable. */
   fallback: {
     intro: string;
@@ -32,6 +45,12 @@ export const THEMES: ThemeDef[] = [
     blurb: 'A fog-bound hamlet where something wears a human face after dark.',
     villainName: 'the Cursed',
     townName: 'Villagers',
+    roles: {
+      [Role.Townsperson]: { label: 'Villager', emoji: '\uD83E\uDDD1\u200D\uD83C\uDF3E' },
+      [Role.Detective]: { label: 'Seer', emoji: '\uD83D\uDD2E' },
+      [Role.Doctor]: { label: 'Herbalist', emoji: '\uD83C\uDF3F' },
+      [Role.Mafia]: { label: 'Cursed', emoji: '\uD83D\uDC7B' },
+    },
     fallback: {
       intro:
         'Lanterns gutter in the mist. The villagers gather, unaware that something old has woken among them.',
@@ -49,6 +68,12 @@ export const THEMES: ThemeDef[] = [
     blurb: 'In a rain-slick megacity, rogue AIs hide inside the crew.',
     villainName: 'the Syndicate',
     townName: 'the Crew',
+    roles: {
+      [Role.Townsperson]: { label: 'Operator', emoji: '\uD83E\uDDD1\u200D\uD83D\uDCBB' },
+      [Role.Detective]: { label: 'Netrunner', emoji: '\uD83D\uDD79\uFE0F' },
+      [Role.Doctor]: { label: 'Medtech', emoji: '\uD83D\uDC89' },
+      [Role.Mafia]: { label: 'Syndicate', emoji: '\uD83D\uDC7E' },
+    },
     fallback: {
       intro:
         'Neon bleeds across wet chrome. Somewhere in the crew, the Syndicate\u2019s ghosts are already running code.',
@@ -65,6 +90,12 @@ export const THEMES: ThemeDef[] = [
     blurb: 'Aboard a failing station, an impostor walks the corridors.',
     villainName: 'the Impostors',
     townName: 'the Crew',
+    roles: {
+      [Role.Townsperson]: { label: 'Crewmate', emoji: '\uD83E\uDDD1\u200D\uD83D\uDE80' },
+      [Role.Detective]: { label: 'Security', emoji: '\uD83D\uDEF0\uFE0F' },
+      [Role.Doctor]: { label: 'Medic', emoji: '\uD83E\uDE7A' },
+      [Role.Mafia]: { label: 'Impostor', emoji: '\uD83D\uDC7D' },
+    },
     fallback: {
       intro:
         'Alarms whisper through the hull. The crew is not alone aboard the station.',
@@ -81,6 +112,12 @@ export const THEMES: ThemeDef[] = [
     blurb: 'Traitors move through a candlelit court, loyal to a hidden crown.',
     villainName: 'the Conspiracy',
     townName: 'the Court',
+    roles: {
+      [Role.Townsperson]: { label: 'Courtier', emoji: '\uD83E\uDDD1\u200D\uD83C\uDF3E' },
+      [Role.Detective]: { label: 'Royal Spymaster', emoji: '\uD83D\uDD0E' },
+      [Role.Doctor]: { label: 'Court Physician', emoji: '\u2697\uFE0F' },
+      [Role.Mafia]: { label: 'Conspirator', emoji: '\uD83D\uDDE1\uFE0F' },
+    },
     fallback: {
       intro:
         'Candlelight flickers on the throne. Among the loyal court, a conspiracy already turns.',
@@ -97,6 +134,14 @@ export const DEFAULT_THEME_ID = THEMES[0].id;
 
 export function getTheme(id: string | undefined): ThemeDef {
   return THEMES.find((t) => t.id === id) ?? THEMES[0];
+}
+
+/** Cosmetic display (label + emoji) for a role within a theme. */
+export function themeRole(
+  themeId: string | undefined,
+  role: Role,
+): ThemeRoleDisplay {
+  return getTheme(themeId).roles[role];
 }
 
 // ---------------------------------------------------------------------------

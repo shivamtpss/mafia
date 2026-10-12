@@ -1,4 +1,14 @@
 import { test, expect, Browser, Page } from '@playwright/test';
+import {
+  DEFAULT_THEME_ID,
+  Role,
+  themeRole,
+} from '@ai-mafia/shared';
+
+// New rooms default to DEFAULT_THEME_ID, so role cards show that theme's
+// cosmetic names (mechanics are identical across themes).
+const MAFIA_LABEL = themeRole(DEFAULT_THEME_ID, Role.Mafia).label;
+const DETECTIVE_LABEL = themeRole(DEFAULT_THEME_ID, Role.Detective).label;
 
 /**
  * Full-game acceptance test: four real browser players play a complete match
@@ -63,9 +73,10 @@ test('four players play a full game to a Town win', async ({ browser }) => {
     const role = await readRole(pageByName.get(name)!);
     roleByName.set(name, role);
   }
-  // Exactly one Mafia and one Detective at 4 players (no doctor).
-  const mafiaName = names.find((n) => roleByName.get(n) === 'Mafia')!;
-  const detectiveName = names.find((n) => roleByName.get(n) === 'Detective')!;
+  // Exactly one Mafia and one Detective at 4 players (no doctor). The role card
+  // shows the theme's cosmetic name for each.
+  const mafiaName = names.find((n) => roleByName.get(n) === MAFIA_LABEL)!;
+  const detectiveName = names.find((n) => roleByName.get(n) === DETECTIVE_LABEL)!;
   expect(mafiaName).toBeTruthy();
   expect(detectiveName).toBeTruthy();
 

@@ -6,6 +6,7 @@ import {
   ROLE_TEAM,
   Role,
   Team,
+  getTheme,
 } from '@ai-mafia/shared';
 import { RoomEntity, toPublicRoomState } from '../rooms/room.entity';
 import { RoomStore } from '../rooms/room.store';
@@ -468,15 +469,16 @@ export class GameService {
   }
 
   private narrate(room: RoomEntity, phase: GamePhase): string | undefined {
+    const theme = getTheme(room.settings.themeId);
     switch (phase) {
       case GamePhase.RoleReveal:
-        return 'Night is about to fall on the town. Learn your role.';
+        return `${theme.name}. ${theme.blurb}`;
       case GamePhase.Night:
-        return 'The town sleeps. Those with night powers, act now.';
+        return theme.fallback.night;
       case GamePhase.Day:
-        return 'Dawn breaks. Discuss who among you cannot be trusted.';
+        return theme.fallback.day;
       case GamePhase.Voting:
-        return 'The time has come. Cast your vote.';
+        return theme.fallback.voting;
       default:
         return undefined;
     }
