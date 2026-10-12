@@ -11,6 +11,8 @@ export interface OllamaGenerateOptions {
   temperature?: number;
   /** Optional system prompt. */
   system?: string;
+  /** Keep the model resident this long after the call (Ollama duration or -1). */
+  keepAlive?: string | number;
 }
 
 export interface OllamaResult {
@@ -59,6 +61,36 @@ export class OllamaClient {
   }
 
   /**
+   * Load the model into memory and keep it resident (keep_alive) so later
+   * generations avoid the cold-start penalty. Fire-and-forget; bounded so it
+   * never blocks startup. `keepAlive` accepts Ollama durations ('30m') or -1 to
+   * keep loaded indefinitely.
+   */
+  async warm(keepAlive: string | number = '30m', timeoutMs = 60000): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.model,
+          prompt: '',
+          stream: false,
+          keep_alive: keepAlive,
+        }),
+      });
+      if (res.ok) this.logger.log(`Model ${this.model} warmed (keep_alive=${keepAlive})`);
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Generate text from a prompt. Bounded by timeout; returns ok:false on any
    * error (network, abort, non-200) rather than throwing.
    */
@@ -80,6 +112,7 @@ export class OllamaClient {
           system: opts.system,
           stream: false,
           format: opts.json ? 'json' : undefined,
+          keep_alive: opts.keepAlive,
           options: {
             temperature: opts.temperature ?? 0.8,
             num_predict: opts.maxTokens ?? 256,

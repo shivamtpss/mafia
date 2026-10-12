@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   GamePhase,
   Scenario,
@@ -25,10 +25,14 @@ export type NarrationBeat =
  * and is kept entirely separate from trusted game commands.
  */
 @Injectable()
-export class AiGameMasterService {
+export class AiGameMasterService implements OnModuleInit {
   private readonly logger = new Logger(AiGameMasterService.name);
   private readonly scenarioTimeoutMs: number;
   private readonly narrationTimeoutMs: number;
+  /** keep_alive value sent to Ollama to keep the model resident. */
+  private readonly keepAlive: string;
+  /** Whether to pre-warm the model on startup (default on). */
+  private readonly warmOnBoot: boolean;
 
   /** Cache of scenarios keyed by themeId to avoid regenerating constantly. */
   private readonly scenarioCache = new Map<string, Scenario>();
@@ -40,6 +44,18 @@ export class AiGameMasterService {
     this.narrationTimeoutMs = Number.isFinite(base) ? base : 8000;
     // Scenario generation gets a little more headroom (cold model load).
     this.scenarioTimeoutMs = this.narrationTimeoutMs * 2;
+    this.keepAlive = process.env.OLLAMA_KEEP_ALIVE ?? '30m';
+    this.warmOnBoot =
+      (process.env.AI_WARM_ON_BOOT ?? 'true').toLowerCase() !== 'false';
+  }
+
+  /**
+   * On startup, pre-warm the model (non-blocking) so the first real game does
+   * not pay the cold-load penalty. Failures are ignored; fallbacks cover them.
+   */
+  onModuleInit(): void {
+    if (!this.warmOnBoot) return;
+    void this.ollama.warm(this.keepAlive).catch(() => undefined);
   }
 
   // -------------------------------------------------------------------------
@@ -80,6 +96,7 @@ export class AiGameMasterService {
       json: true,
       maxTokens: 400,
       temperature: 0.9,
+      keepAlive: this.keepAlive,
       system:
         'You are a game master writing short, atmospheric, PG-13 flavor text ' +
         'for a social deduction game. Respond ONLY with JSON. Never include ' +
@@ -138,6 +155,7 @@ export class AiGameMasterService {
       json: true,
       maxTokens: 120,
       temperature: 0.9,
+      keepAlive: this.keepAlive,
       system:
         'You narrate a social deduction game in a given theme. Respond ONLY ' +
         'with JSON like {"line": string}. One or two vivid sentences. Never ' +
