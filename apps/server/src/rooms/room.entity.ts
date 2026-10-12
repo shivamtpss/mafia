@@ -7,6 +7,7 @@ import {
   PublicRoomState,
   RoomSettings,
 } from '@ai-mafia/shared';
+import type { GameState } from '../game/game.state';
 
 /**
  * Server-side player record. Contains fields that are NEVER sent wholesale to
@@ -43,6 +44,11 @@ export interface RoomEntity {
   phaseEndsAt: number | null;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Server-only authoritative game state while a match is in progress. Never
+   * included in the public projection (toPublicRoomState ignores it).
+   */
+  game?: GameState;
 }
 
 export function toPublicPlayer(p: ServerPlayer): PublicPlayer {

@@ -283,6 +283,32 @@ export class RoomsService {
     return room;
   }
 
+  /**
+   * Validate (host + readiness + player count) that a game may start, returning
+   * the room WITHOUT mutating it. The GameService performs the actual transition
+   * (role assignment + scheduling) so game logic stays in one place.
+   */
+  assertCanStart(code: string, playerId: string): RoomEntity {
+    const room = this.requireRoom(code);
+    this.requireHost(room, playerId);
+    if (room.phase !== GamePhase.Lobby) {
+      throw new RoomError(ErrorCode.WrongPhase, 'Game already started');
+    }
+    const check = this.canStart(room);
+    if (!check.ok) throw check.error;
+    return room;
+  }
+
+  /** Validate that a finished game may be restarted by the host. */
+  assertCanRematch(code: string, playerId: string): RoomEntity {
+    const room = this.requireRoom(code);
+    this.requireHost(room, playerId);
+    if (room.phase !== GamePhase.GameOver) {
+      throw new RoomError(ErrorCode.WrongPhase, 'Game is not over yet');
+    }
+    return room;
+  }
+
   // -------------------------------------------------------------------------
   // Connection lifecycle
   // -------------------------------------------------------------------------

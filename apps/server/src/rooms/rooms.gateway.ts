@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleInit } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -11,12 +11,20 @@ import {
 import { Server, Socket } from 'socket.io';
 import {
   AckResult,
+  ChatMessage,
   ChatSendPayload,
   ClientToServerEvents,
   CreateRoomPayload,
+  EliminationPayload,
   ErrorCode,
+  GameFinishedPayload,
+  GamePhase,
+  InvestigationResultPayload,
   JoinRoomPayload,
   JoinedRoomData,
+  NightActionPayload,
+  PhaseChangedPayload,
+  PrivateRoleInfo,
   PublicRoomState,
   ReadyPayload,
   RejoinRoomPayload,
@@ -24,6 +32,8 @@ import {
   SocketHandshakeAuth,
   UpdateProfilePayload,
   UpdateSettingsPayload,
+  VoteCastPayload,
+  VoteTally,
   sanitizeChat,
 } from '@ai-mafia/shared';
 import { RoomsService } from './rooms.service';
@@ -32,6 +42,8 @@ import { RoomEntity } from './room.entity';
 import { toPublicRoomState } from './room.entity';
 import { RateLimiterService } from '../common/rate-limiter.service';
 import { generateMessageId } from '../common/ids';
+import { GameService } from '../game/game.service';
+import { GameEmitter } from '../game/game.emitter';
 
 type IoServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type IoSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -56,7 +68,7 @@ const fail = (code: ErrorCode, message: string): AckResult<never> => ({
   },
 })
 export class RoomsGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, GameEmitter
 {
   private readonly logger = new Logger(RoomsGateway.name);
 
@@ -71,7 +83,59 @@ export class RoomsGateway
   constructor(
     private readonly rooms: RoomsService,
     private readonly rateLimiter: RateLimiterService,
+    private readonly games: GameService,
   ) {}
+
+  onModuleInit(): void {
+    // Wire the game service's transport to this gateway.
+    this.games.registerEmitter(this);
+  }
+
+  /** Socket.IO room used to privately address a single player's socket(s). */
+  private playerRoom(playerId: string): string {
+    return `player:${playerId}`;
+  }
+
+  // -------------------------------------------------------------------------
+  // GameEmitter implementation (targeted + broadcast emits)
+  // -------------------------------------------------------------------------
+
+  roomUpdated(code: string, room: PublicRoomState): void {
+    this.server.to(code).emit('room:updated', room);
+  }
+
+  phaseChanged(code: string, payload: PhaseChangedPayload): void {
+    this.server.to(code).emit('phase:changed', payload);
+  }
+
+  roleAssigned(playerId: string, info: PrivateRoleInfo): void {
+    this.server.to(this.playerRoom(playerId)).emit('role:assigned', info);
+  }
+
+  investigationResult(
+    playerId: string,
+    payload: InvestigationResultPayload,
+  ): void {
+    this.server
+      .to(this.playerRoom(playerId))
+      .emit('investigation:result', payload);
+  }
+
+  systemMessage(code: string, message: ChatMessage): void {
+    this.server.to(code).emit('chat:message', message);
+  }
+
+  voteUpdated(code: string, tally: VoteTally): void {
+    this.server.to(code).emit('vote:updated', tally);
+  }
+
+  playerEliminated(code: string, payload: EliminationPayload): void {
+    this.server.to(code).emit('player:eliminated', payload);
+  }
+
+  gameFinished(code: string, payload: GameFinishedPayload): void {
+    this.server.to(code).emit('game:finished', payload);
+  }
 
   // -------------------------------------------------------------------------
   // Connection lifecycle
@@ -90,7 +154,12 @@ export class RoomsGateway
     if (!ctx) return;
 
     const room = this.rooms.markDisconnected(ctx.roomCode, ctx.playerId);
-    if (room) this.broadcastRoom(room);
+    if (room) {
+      this.broadcastRoom(room);
+      // A disconnect may unblock an in-progress phase (e.g. the only remaining
+      // actor left). Let the game service re-check early-resolution conditions.
+      if (room.game) this.games.onPlayerConnectivityChanged(room);
+    }
 
     // Grace period: remove the seat if the player doesn't reconnect.
     const timer = setTimeout(() => {
@@ -264,17 +333,65 @@ export class RoomsGateway
     const ctx = this.requireContext(client);
     if (!ctx) return fail(ErrorCode.NotInRoom, 'You are not in a room');
     return this.guard(() => {
-      const room = this.rooms.startGame(ctx.roomCode, ctx.playerId);
-      const publicState = toPublicRoomState(room);
-      this.server.to(room.code).emit('game:started', publicState);
-      this.server.to(room.code).emit('phase:changed', {
-        phase: room.phase,
-        round: room.round,
-        phaseEndsAt: room.phaseEndsAt,
-        announcement: 'The game is about to begin...',
-      });
-      this.broadcastRoom(room);
-      return ok(publicState);
+      // Validate authoritatively (host + readiness + player count), then hand
+      // off to the game service which assigns roles and drives the phase loop.
+      const room = this.rooms.assertCanStart(ctx.roomCode, ctx.playerId);
+      this.server.to(room.code).emit('game:started', toPublicRoomState(room));
+      this.games.startGame(room);
+      return ok(toPublicRoomState(room));
+    });
+  }
+
+  @SubscribeMessage('game:rematch')
+  handleRematch(
+    @ConnectedSocket() client: IoSocket,
+  ): AckResult<PublicRoomState> {
+    const ctx = this.requireContext(client);
+    if (!ctx) return fail(ErrorCode.NotInRoom, 'You are not in a room');
+    return this.guard(() => {
+      const room = this.rooms.assertCanRematch(ctx.roomCode, ctx.playerId);
+      this.games.rematch(room);
+      return ok(toPublicRoomState(room));
+    });
+  }
+
+  @SubscribeMessage('night:action')
+  handleNightAction(
+    @ConnectedSocket() client: IoSocket,
+    @MessageBody() payload: NightActionPayload,
+  ): AckResult<{ accepted: true }> {
+    const ctx = this.requireContext(client);
+    if (!ctx) return fail(ErrorCode.NotInRoom, 'You are not in a room');
+    if (!this.rateLimiter.consume(`${client.id}:night`, 10, 2)) {
+      return fail(ErrorCode.RateLimited, 'Slow down');
+    }
+    return this.guard(() => {
+      const room = this.rooms.getRoom(ctx.roomCode);
+      if (!room) return fail(ErrorCode.RoomNotFound, 'Room not found');
+      const targetId =
+        payload && typeof payload.targetId === 'string' ? payload.targetId : null;
+      this.games.submitNightAction(room, ctx.playerId, targetId);
+      return ok({ accepted: true } as const);
+    });
+  }
+
+  @SubscribeMessage('vote:cast')
+  handleVote(
+    @ConnectedSocket() client: IoSocket,
+    @MessageBody() payload: VoteCastPayload,
+  ): AckResult<{ accepted: true }> {
+    const ctx = this.requireContext(client);
+    if (!ctx) return fail(ErrorCode.NotInRoom, 'You are not in a room');
+    if (!this.rateLimiter.consume(`${client.id}:vote`, 10, 2)) {
+      return fail(ErrorCode.RateLimited, 'Slow down');
+    }
+    return this.guard(() => {
+      const room = this.rooms.getRoom(ctx.roomCode);
+      if (!room) return fail(ErrorCode.RoomNotFound, 'Room not found');
+      const targetId =
+        payload && typeof payload.targetId === 'string' ? payload.targetId : null;
+      this.games.submitVote(room, ctx.playerId, targetId);
+      return ok({ accepted: true } as const);
     });
   }
 
@@ -330,6 +447,8 @@ export class RoomsGateway
       playerId,
     });
     client.join(room.code);
+    // Private channel for role/investigation emits addressed to this player.
+    client.join(this.playerRoom(playerId));
     this.rooms.attachSocket(room.code, playerId, client.id);
   }
 
