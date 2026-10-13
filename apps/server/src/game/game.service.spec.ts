@@ -1,6 +1,7 @@
 import { GameService } from './game.service';
 import { GameEmitter } from './game.emitter';
 import { AiGameMasterService } from '../ai/ai-game-master.service';
+import { AiPlayerService } from './ai-player.service';
 import { OllamaClient } from '../ai/ollama.client';
 import { RoomStore } from '../rooms/room.store';
 import { RoomsService } from '../rooms/rooms.service';
@@ -74,7 +75,8 @@ describe('GameService — orchestration', () => {
       .spyOn(ollama, 'generate')
       .mockResolvedValue({ ok: false, text: '', error: 'offline (test)' });
     const ai = new AiGameMasterService(ollama);
-    service = new GameService(store, ai);
+    const aiPlayer = new AiPlayerService(ollama);
+    service = new GameService(store, ai, aiPlayer);
     emitter = new FakeEmitter();
     service.registerEmitter(emitter);
   });
@@ -210,5 +212,51 @@ describe('GameService — orchestration', () => {
     expect(room.game).toBeUndefined();
     expect(room.phase).toBe(GamePhase.Lobby);
     for (const p of room.players.values()) expect(p.isReady).toBe(false);
+  });
+
+  it('runs a full game with only AI players, driven by their own timers', () => {
+    // One human host + 3 AI fill to the 4-player minimum.
+    const host = rooms.createRoom({ displayName: 'Host', avatar: 'fox' });
+    const code = host.room.code;
+    rooms.addAiPlayers(code, host.player.id, 3);
+    const room = store.get(code)!;
+    expect(room.players.size).toBe(4);
+    // All AI auto-ready; host readiness is implied by being host.
+    const ai = [...room.players.values()].filter(
+      (p) => p.id !== host.player.id,
+    );
+    expect(ai.every((p) => p.isReady)).toBe(true);
+
+    service.startGame(room, () => 0);
+
+    // Drive the whole match by advancing time; AI timers submit all actions and
+    // votes, and the human host is also AI-free so we must act for the host.
+    // To keep it deterministic we run the host as a passive abstainer: advance
+    // through phases; the phase timers + AI early-resolution carry the game.
+    // Run up to a safe number of phase ticks until the game ends.
+    const d = room.settings.phaseDurations;
+    for (let i = 0; i < 40 && room.phase !== GamePhase.GameOver; i++) {
+      // Let any pending AI action timers fire (max ~9s), then the phase timer.
+      jest.advanceTimersByTime(10_000);
+      // Host acts as needed so phases can resolve even if the host has a role.
+      if (room.phase === GamePhase.Night && room.game) {
+        try {
+          service.submitNightAction(room, host.player.id, null);
+        } catch {
+          /* host has no night role or already resolved */
+        }
+      }
+      if (room.phase === GamePhase.Voting && room.game) {
+        try {
+          service.submitVote(room, host.player.id, null);
+        } catch {
+          /* already resolved */
+        }
+      }
+      jest.advanceTimersByTime(Math.max(d.night, d.voting, d.day) * 1000);
+    }
+
+    expect(room.phase).toBe(GamePhase.GameOver);
+    expect(emitter.finished).not.toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import {
   AckResult,
+  AddAiPlayersPayload,
   ChatMessage,
   ChatSendPayload,
   ClientToServerEvents,
@@ -28,6 +29,7 @@ import {
   PublicRoomState,
   ReadyPayload,
   RejoinRoomPayload,
+  RemoveAiPlayerPayload,
   ServerToClientEvents,
   SocketHandshakeAuth,
   UpdateProfilePayload,
@@ -321,6 +323,40 @@ export class RoomsGateway
         ctx.playerId,
         payload?.settings ?? {},
       );
+      this.broadcastRoom(room);
+      return ok(toPublicRoomState(room));
+    });
+  }
+
+  @SubscribeMessage('room:add_ai')
+  handleAddAi(
+    @ConnectedSocket() client: IoSocket,
+    @MessageBody() payload: AddAiPlayersPayload,
+  ): AckResult<PublicRoomState> {
+    const ctx = this.requireContext(client);
+    if (!ctx) return fail(ErrorCode.NotInRoom, 'You are not in a room');
+    return this.guard(() => {
+      const count = Math.max(1, Math.min(Number(payload?.count) || 1, 12));
+      const room = this.rooms.addAiPlayers(ctx.roomCode, ctx.playerId, count);
+      this.broadcastRoom(room);
+      return ok(toPublicRoomState(room));
+    });
+  }
+
+  @SubscribeMessage('room:remove_ai')
+  handleRemoveAi(
+    @ConnectedSocket() client: IoSocket,
+    @MessageBody() payload: RemoveAiPlayerPayload,
+  ): AckResult<PublicRoomState> {
+    const ctx = this.requireContext(client);
+    if (!ctx) return fail(ErrorCode.NotInRoom, 'You are not in a room');
+    return this.guard(() => {
+      const room = this.rooms.removeAiPlayer(
+        ctx.roomCode,
+        ctx.playerId,
+        String(payload?.targetId ?? ''),
+      );
+      this.server.to(room.code).emit('player:left', String(payload.targetId));
       this.broadcastRoom(room);
       return ok(toPublicRoomState(room));
     });

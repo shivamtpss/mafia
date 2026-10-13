@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   ErrorCode,
   GamePhase,
+  PlayerKind,
   PlayerStatus,
   ROLE_TEAM,
   Role,
@@ -16,6 +17,7 @@ import { GameEmitter } from './game.emitter';
 import { GameState } from './game.state';
 import { generateMessageId } from '../common/ids';
 import { AiGameMasterService } from '../ai/ai-game-master.service';
+import { AiPlayerService } from './ai-player.service';
 
 /**
  * Orchestrates a live match: phase scheduling with server timers, action intake,
@@ -31,6 +33,7 @@ export class GameService {
   constructor(
     private readonly store: RoomStore,
     private readonly ai: AiGameMasterService,
+    private readonly aiPlayer: AiPlayerService,
   ) {}
 
   /** Wire the transport. Called once by the gateway after construction. */
@@ -158,6 +161,11 @@ export class GameService {
     // after, if the model responds within its bounded timeout.
     this.enrichNarration(room, phase);
 
+    // Schedule AI-controlled players' behavior for this phase (night actions,
+    // votes, day chatter) with small human-like delays. Purely additive: the
+    // phase timer still resolves everything if an AI somehow does not act.
+    this.driveAiForPhase(room, phase);
+
     if (seconds > 0) {
       game.phaseTimer = setTimeout(
         () => this.onPhaseTimeout(room.code, phase, room.round),
@@ -200,6 +208,144 @@ export class GameService {
     // Ignore stale timers from a previous phase/round.
     if (room.phase !== phase || room.round !== round) return;
     this.advance(room);
+  }
+
+  // -------------------------------------------------------------------------
+  // AI-controlled players (Phase 5)
+  // -------------------------------------------------------------------------
+
+  /** Living AI players in seat order. */
+  private livingAi(room: RoomEntity): string[] {
+    const game = room.game;
+    if (!game) return [];
+    return [...room.players.values()]
+      .filter((p) => p.kind === PlayerKind.Ai && game.alive.has(p.id))
+      .sort((a, b) => a.seat - b.seat)
+      .map((p) => p.id);
+  }
+
+  /** Schedule a timer that auto-cancels if the phase/round/game changed. */
+  private aiSchedule(
+    room: RoomEntity,
+    phase: GamePhase,
+    round: number,
+    delayMs: number,
+    fn: () => void,
+  ): void {
+    const game = room.game;
+    if (!game) return;
+    const timer = setTimeout(() => {
+      game.aiTimers.delete(timer);
+      const current = this.store.get(room.code);
+      if (!current || current.game !== game) return;
+      if (current.phase !== phase || current.round !== round) return;
+      try {
+        fn();
+      } catch (err) {
+        this.logger.debug(`AI action skipped: ${(err as Error)?.message}`);
+      }
+    }, delayMs);
+    game.aiTimers.add(timer);
+  }
+
+  /** Dispatch AI behavior appropriate to the phase. */
+  private driveAiForPhase(room: RoomEntity, phase: GamePhase): void {
+    const game = room.game;
+    if (!game) return;
+    const round = room.round;
+
+    if (phase === GamePhase.Night) {
+      for (const id of this.livingAi(room)) {
+        const role = game.roles.get(id);
+        if (!role) continue;
+        // Townsperson AI has no night action — skip silently.
+        const delay = 1500 + Math.floor(Math.random() * 4000);
+        this.aiSchedule(room, phase, round, delay, () => {
+          if (game.night.submitted.has(id)) return;
+          const memory = game.investigations.get(id);
+          const target = this.aiPlayer.decideNightTarget(game, id, memory);
+          try {
+            this.submitNightAction(room, id, target);
+          } catch {
+            // If the heuristic target was somehow illegal, submit a skip so the
+            // night can still resolve on time.
+            try {
+              this.submitNightAction(room, id, null);
+            } catch {
+              /* already resolved */
+            }
+          }
+        });
+      }
+    } else if (phase === GamePhase.Voting) {
+      for (const id of this.livingAi(room)) {
+        const delay = 2000 + Math.floor(Math.random() * 5000);
+        this.aiSchedule(room, phase, round, delay, () => {
+          if (game.votes.has(id)) return;
+          const target = this.aiPlayer.decideVote(game, id, {
+            knownMafiaResults: game.investigations.get(id),
+            tally: this.tally(room).counts,
+            personalityId: room.players.get(id)?.personalityId,
+          });
+          try {
+            this.submitVote(room, id, target);
+          } catch {
+            /* vote window closed */
+          }
+        });
+      }
+    } else if (phase === GamePhase.Day) {
+      // A few AI contribute a themed chat line, staggered through the day.
+      const speakers = this.livingAi(room).filter((id) =>
+        this.aiPlayer.shouldSpeak(room.players.get(id)?.personalityId),
+      );
+      const theme = getTheme(room.settings.themeId);
+      speakers.forEach((id, i) => {
+        const delay = 2500 + i * 3500 + Math.floor(Math.random() * 2000);
+        this.aiSchedule(room, phase, round, delay, () => {
+          const self = room.players.get(id);
+          if (!self) return;
+          const livingNames = [...room.players.values()]
+            .filter((p) => game.alive.has(p.id))
+            .map((p) => p.displayName);
+          void this.aiPlayer
+            .chatLine({
+              personalityId: self.personalityId,
+              selfName: self.displayName,
+              livingNames,
+              themeBlurb: theme.blurb,
+              round,
+            })
+            .then((line) => {
+              const current = this.store.get(room.code);
+              if (
+                !current ||
+                current.game !== game ||
+                current.phase !== GamePhase.Day ||
+                current.round !== round ||
+                !game.alive.has(id)
+              ) {
+                return;
+              }
+              this.emitter.systemMessage(room.code, {
+                id: generateMessageId(),
+                roomCode: room.code,
+                authorId: id,
+                authorName: self.displayName,
+                text: line,
+                at: Date.now(),
+                system: false,
+              });
+            })
+            .catch(() => undefined);
+        });
+      });
+    }
+  }
+
+  private clearAiTimers(game: GameState): void {
+    for (const t of game.aiTimers) clearTimeout(t);
+    game.aiTimers.clear();
   }
 
   /** Advance from the current phase to the next, resolving as needed. */
@@ -262,6 +408,15 @@ export class GameService {
     if (resolution.investigation) {
       const detectiveId = this.findActor(game, Role.Detective);
       if (detectiveId) {
+        // Record into this detective's private memory (used by AI detectives to
+        // act/vote on what THEY personally learned; never shared with others).
+        let mem = game.investigations.get(detectiveId);
+        if (!mem) {
+          mem = new Map<string, boolean>();
+          game.investigations.set(detectiveId, mem);
+        }
+        mem.set(resolution.investigation.targetId, resolution.investigation.isMafia);
+
         this.emitter.investigationResult(detectiveId, {
           round: room.round,
           targetId: resolution.investigation.targetId,
@@ -526,6 +681,9 @@ export class GameService {
       clearTimeout(room.game.phaseTimer);
       room.game.phaseTimer = null;
     }
+    // Also cancel any pending AI action timers so they can't fire into a new
+    // phase/game after a transition, win, or rematch.
+    if (room.game) this.clearAiTimers(room.game);
   }
 
   private broadcast(room: RoomEntity): void {

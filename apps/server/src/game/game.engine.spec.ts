@@ -21,6 +21,8 @@ function gameWithRoles(roleMap: Record<string, Role>): GameState {
     resolving: false,
     timeline: [],
     winner: null,
+    investigations: new Map(),
+    aiTimers: new Set(),
   };
 }
 

@@ -45,6 +45,8 @@ export interface RoomClient {
   setReady: (ready: boolean) => Promise<ActionResult<PublicRoomState>>;
   updateProfile: (patch: { displayName?: string; avatar?: string }) => Promise<ActionResult<PublicRoomState>>;
   updateSettings: (patch: { themeId?: string }) => Promise<ActionResult<PublicRoomState>>;
+  addAiPlayers: (count: number) => Promise<ActionResult<PublicRoomState>>;
+  removeAiPlayer: (targetId: string) => Promise<ActionResult<PublicRoomState>>;
   startGame: () => Promise<ActionResult<PublicRoomState>>;
   rematch: () => Promise<ActionResult<PublicRoomState>>;
   submitNightAction: (targetId: string | null) => Promise<ActionResult<{ accepted: true }>>;
@@ -276,6 +278,32 @@ export function useRoomClient(): RoomClient {
     [ensureSocket],
   );
 
+  const addAiPlayers = useCallback(
+    async (count: number): Promise<ActionResult<PublicRoomState>> => {
+      const sock = ensureSocket();
+      const res = await emitWithAck<PublicRoomState>(sock, 'room:add_ai', {
+        count,
+      });
+      if (!res.ok) return { ok: false, message: res.error.message };
+      setRoom(res.data);
+      return { ok: true, data: res.data };
+    },
+    [ensureSocket],
+  );
+
+  const removeAiPlayer = useCallback(
+    async (targetId: string): Promise<ActionResult<PublicRoomState>> => {
+      const sock = ensureSocket();
+      const res = await emitWithAck<PublicRoomState>(sock, 'room:remove_ai', {
+        targetId,
+      });
+      if (!res.ok) return { ok: false, message: res.error.message };
+      setRoom(res.data);
+      return { ok: true, data: res.data };
+    },
+    [ensureSocket],
+  );
+
   const rematch = useCallback(async (): Promise<
     ActionResult<PublicRoomState>
   > => {
@@ -358,6 +386,8 @@ export function useRoomClient(): RoomClient {
     setReady,
     updateProfile,
     updateSettings,
+    addAiPlayers,
+    removeAiPlayer,
     startGame,
     rematch,
     submitNightAction,

@@ -25,6 +25,14 @@ export interface GameState {
   timeline: TimelineEntry[];
   /** Set once the game is decided. */
   winner: Team | null;
+  /**
+   * Per-detective investigation memory: detectiveId -> (targetId -> isMafia).
+   * Used by AI detectives to act/vote on what THEY personally learned. Humans
+   * get their results via private emit; this is the server-side record.
+   */
+  investigations: Map<string, Map<string, boolean>>;
+  /** Pending AI action timers (night/vote/chat) so we can cancel on teardown. */
+  aiTimers: Set<NodeJS.Timeout>;
 }
 
 export interface NightActions {

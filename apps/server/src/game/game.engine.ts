@@ -39,6 +39,8 @@ export class GameEngine {
       resolving: false,
       timeline: [],
       winner: null,
+      investigations: new Map(),
+      aiTimers: new Set(),
     };
   }
 

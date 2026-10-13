@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AnimatePresence } from 'framer-motion';
-import { GamePhase, THEMES } from '@ai-mafia/shared';
+import { GamePhase, PlayerKind, THEMES } from '@ai-mafia/shared';
 import { useRoomClient } from '@/lib/useRoomClient';
 import { loadIdentity } from '@/lib/identity';
 import { PlayerCard } from '@/components/PlayerCard';
@@ -57,6 +57,7 @@ export default function RoomPage() {
   const isHost = self?.isHost ?? false;
 
   const readyCount = room?.players.filter((p) => p.isReady || p.isHost).length ?? 0;
+  const aiCount = room?.players.filter((p) => p.kind === PlayerKind.Ai).length ?? 0;
   const canStart =
     room != null &&
     room.players.length >= room.settings.minPlayers &&
@@ -223,6 +224,58 @@ export default function RoomPage() {
                   </p>
                 )}
               </div>
+
+              {/* AI players (host only) */}
+              {isHost && (
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-xs uppercase tracking-wider text-slate-500">
+                      AI players
+                    </span>
+                    <span className="text-[11px] text-slate-600">
+                      {aiCount} bot{aiCount === 1 ? '' : 's'} ·{' '}
+                      {room ? room.players.length : 0}/
+                      {room?.settings.maxPlayers}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
+                      disabled={
+                        !room || room.players.length >= room.settings.maxPlayers
+                      }
+                      onClick={async () => {
+                        setActionError(null);
+                        const res = await client.addAiPlayers(1);
+                        if (!res.ok) setActionError(res.message);
+                      }}
+                    >
+                      + Add AI player
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={aiCount === 0}
+                      onClick={async () => {
+                        const lastAi = [...(room?.players ?? [])]
+                          .reverse()
+                          .find((p) => p.kind === PlayerKind.Ai);
+                        if (!lastAi) return;
+                        setActionError(null);
+                        const res = await client.removeAiPlayer(lastAi.id);
+                        if (!res.ok) setActionError(res.message);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-600">
+                    Fill empty seats with AI opponents to reach the minimum.
+                  </p>
+                </div>
+              )}
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button

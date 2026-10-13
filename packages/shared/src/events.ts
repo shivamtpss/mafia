@@ -119,6 +119,11 @@ export interface AddAiPlayersPayload {
   count: number;
 }
 
+/** Host removes a specific AI player from the lobby. */
+export interface RemoveAiPlayerPayload {
+  targetId: string;
+}
+
 export interface UpdateSettingsPayload {
   settings: Partial<import('./types').RoomSettings>;
 }
@@ -204,6 +209,7 @@ export interface ClientToServerEvents {
   'player:update': (p: UpdateProfilePayload, ack: Ack<PublicRoomState>) => void;
   'room:settings': (p: UpdateSettingsPayload, ack: Ack<PublicRoomState>) => void;
   'room:add_ai': (p: AddAiPlayersPayload, ack: Ack<PublicRoomState>) => void;
+  'room:remove_ai': (p: RemoveAiPlayerPayload, ack: Ack<PublicRoomState>) => void;
   'game:start': (ack: Ack<PublicRoomState>) => void;
   'game:rematch': (ack: Ack<PublicRoomState>) => void;
   'chat:send': (p: ChatSendPayload, ack: Ack<{ accepted: true }>) => void;

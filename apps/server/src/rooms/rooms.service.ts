@@ -1,11 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  AI_NAMES,
+  AVATARS,
   ConnectionStatus,
   DEFAULT_ROOM_SETTINGS,
   ErrorCode,
   GamePhase,
   MAX_PLAYERS,
   MIN_PLAYERS,
+  PERSONALITY_IDS,
   PlayerKind,
   PlayerStatus,
   RoomSettings,
@@ -203,6 +206,62 @@ export class RoomsService {
   // -------------------------------------------------------------------------
   // Mutations
   // -------------------------------------------------------------------------
+
+  /**
+   * Host adds up to `count` AI players to fill empty seats. AI seats auto-ready
+   * and get a unique name, free avatar, and a rotating personality. Lobby-only,
+   * host-only. Returns the updated room.
+   */
+  addAiPlayers(code: string, playerId: string, count: number): RoomEntity {
+    const room = this.requireRoom(code);
+    this.requireHost(room, playerId);
+    if (room.phase !== GamePhase.Lobby) {
+      throw new RoomError(ErrorCode.WrongPhase, 'Can only add AI in the lobby');
+    }
+    const want = Math.max(1, Math.min(Number(count) || 1, MAX_PLAYERS));
+    let added = 0;
+    for (let i = 0; i < want; i++) {
+      if (room.players.size >= room.settings.maxPlayers) break;
+      const name = this.allocateAiName(room);
+      const avatar = this.allocateAvatar(room);
+      const personalityId =
+        PERSONALITY_IDS[room.players.size % PERSONALITY_IDS.length];
+      const ai = this.makePlayer({
+        sessionId: generateSessionId(),
+        displayName: name,
+        avatar,
+        seat: this.nextSeat(room),
+        isHost: false,
+        kind: PlayerKind.Ai,
+        personalityId,
+      });
+      room.players.set(ai.id, ai);
+      added++;
+    }
+    if (added === 0) {
+      throw new RoomError(ErrorCode.RoomFull, 'Room is already full');
+    }
+    room.updatedAt = Date.now();
+    this.logger.log(`Room ${code}: added ${added} AI player(s)`);
+    return room;
+  }
+
+  /** Host removes a specific AI player (lobby-only, host-only). */
+  removeAiPlayer(code: string, playerId: string, targetId: string): RoomEntity {
+    const room = this.requireRoom(code);
+    this.requireHost(room, playerId);
+    if (room.phase !== GamePhase.Lobby) {
+      throw new RoomError(ErrorCode.WrongPhase, 'Can only remove AI in the lobby');
+    }
+    const target = room.players.get(targetId);
+    if (!target || target.kind !== PlayerKind.Ai) {
+      throw new RoomError(ErrorCode.Validation, 'Not an AI player');
+    }
+    room.players.delete(targetId);
+    this.store.unindexSession(target.sessionId);
+    room.updatedAt = Date.now();
+    return room;
+  }
 
   setReady(code: string, playerId: string, isReady: boolean): RoomEntity {
     const room = this.requireRoom(code);
@@ -425,21 +484,25 @@ export class RoomsService {
     seat: number;
     isHost: boolean;
     kind?: PlayerKind;
+    personalityId?: string;
   }): ServerPlayer {
+    const kind = args.kind ?? PlayerKind.Human;
     return {
       id: generatePlayerId(),
       sessionId: args.sessionId,
       socketId: null,
       displayName: args.displayName,
       avatar: args.avatar,
-      kind: args.kind ?? PlayerKind.Human,
+      kind,
       isHost: args.isHost,
-      isReady: false,
+      // AI seats are always ready; they never block the lobby start check.
+      isReady: kind === PlayerKind.Ai,
       status: PlayerStatus.Alive,
       connection: ConnectionStatus.Connected,
       seat: args.seat,
       joinedAt: Date.now(),
       disconnectedAt: null,
+      personalityId: args.personalityId,
     };
   }
 
@@ -453,6 +516,27 @@ export class RoomsService {
     let seat = 0;
     while (seats.includes(seat)) seat++;
     return seat;
+  }
+
+  /** Pick an AI display name not already taken in the room. */
+  private allocateAiName(room: RoomEntity): string {
+    const taken = new Set(
+      [...room.players.values()].map((p) => p.displayName.toLowerCase()),
+    );
+    for (const n of AI_NAMES) {
+      if (!taken.has(n.toLowerCase())) return n;
+    }
+    // Pool exhausted: append a numeric suffix.
+    let i = 2;
+    while (taken.has(`bot ${i}`)) i++;
+    return `Bot ${i}`;
+  }
+
+  /** Pick an avatar not already used in the room (falls back to any). */
+  private allocateAvatar(room: RoomEntity): string {
+    const taken = new Set([...room.players.values()].map((p) => p.avatar));
+    const free = AVATARS.find((a) => !taken.has(a));
+    return free ?? AVATARS[Math.floor(Math.random() * AVATARS.length)];
   }
 
   private allocateUniqueCode(): string {

@@ -35,9 +35,9 @@ export default defineConfig({
         NODE_ENV: 'production',
         // Short phases so the full-game e2e runs quickly and deterministically.
         AI_MAFIA_PHASE_ROLE_REVEAL: '2',
-        AI_MAFIA_PHASE_NIGHT: '30',
+        AI_MAFIA_PHASE_NIGHT: '12',
         AI_MAFIA_PHASE_DAY: '2',
-        AI_MAFIA_PHASE_VOTING: '30',
+        AI_MAFIA_PHASE_VOTING: '12',
         AI_MAFIA_PHASE_ELIMINATION: '2',
       },
       url: `http://localhost:${SERVER_PORT}/health`,

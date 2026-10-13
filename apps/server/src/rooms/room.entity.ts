@@ -28,6 +28,8 @@ export interface ServerPlayer {
   joinedAt: number;
   /** Timestamp set when a player disconnects, used for reconnection grace. */
   disconnectedAt: number | null;
+  /** For AI seats only: which personality drives their behavior/dialogue. */
+  personalityId?: string;
 }
 
 /**
